@@ -38,21 +38,31 @@ export async function fetchQuakes(feed) {
     .sort((a, b) => b.time - a.time);
 }
 
+/** [lon, lat] for an EONET geometry: the point itself, or the middle of a polygon's outline. */
+function eventPosition(g) {
+  if (g.type === "Point") return g.coordinates;
+  if (g.type !== "Polygon" || !g.coordinates?.[0]?.length) return null;
+  const ring = g.coordinates[0].slice(0, -1); // last vertex repeats the first
+  const pts = ring.length ? ring : g.coordinates[0];
+  return [0, 1].map((k) => pts.reduce((s, p) => s + p[k], 0) / pts.length);
+}
+
 /** NASA EONET open natural events from the last 60 days. */
 export async function fetchEvents() {
   const data = await getJSON("https://eonet.gsfc.nasa.gov/api/v3/events?status=open&days=60");
   return data.events
     .map((e) => {
       const g = e.geometry?.[e.geometry.length - 1];
-      if (!g || g.type !== "Point") return null;
+      const pos = g && eventPosition(g);
+      if (!pos) return null;
       return {
         id: e.id,
         title: e.title,
         category: e.categories?.[0]?.id || "other",
         categoryTitle: e.categories?.[0]?.title || "Other",
         date: g.date,
-        lon: g.coordinates[0],
-        lat: g.coordinates[1],
+        lon: pos[0],
+        lat: pos[1],
         source: e.sources?.[0]?.url || e.link,
       };
     })
@@ -97,11 +107,20 @@ export function fetchAir(lat, lon) {
   );
 }
 
-/** Daily mean temperature from 1950 to about a week ago (ERA5 lags a few days). */
+/**
+ * Daily mean temperature from 1950 to about a week ago (ERA5 lags a few days).
+ * Cached per point for the session: the archive is large and rate-limited.
+ */
+const climateCache = new Map();
 export function fetchClimate(lat, lon) {
+  const key = `${lat},${lon}`;
+  if (climateCache.has(key)) return climateCache.get(key);
   const end = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
-  return getJSON(
+  const req = getJSON(
     `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}` +
       `&start_date=1950-01-01&end_date=${end}&daily=temperature_2m_mean&timezone=auto`,
   );
+  climateCache.set(key, req);
+  req.catch(() => climateCache.delete(key)); // let a failed point be retried
+  return req;
 }

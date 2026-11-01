@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { yearlyAnomalies, trendPerDecade, last12MonthsAnomaly, stripeColor, aqiBand, weatherLabel } from "../js/climate.js";
+import { yearlyAnomalies, trendPerDecade, last12MonthsAnomaly, stripeColor, aqiBand, weatherLabel, eventShortLabel } from "../js/climate.js";
 
 // Synthetic daily series: a constant 20 °C plus 0.02 °C of warming per year.
 function series(from, to) {
@@ -55,4 +55,11 @@ test("AQI bands and weather codes", () => {
   assert.equal(aqiBand(null).label, "No data");
   assert.equal(weatherLabel(95)[0], "Thunderstorm");
   assert.equal(weatherLabel(1234)[0], "Unknown");
+});
+
+test("event badges get a whole-word label", () => {
+  assert.equal(eventShortLabel("severeStorms", "Severe Storms"), "Storm");
+  assert.equal(eventShortLabel("seaLakeIce", "Sea and Lake Ice"), "Ice");
+  assert.equal(eventShortLabel("newThing", "Brand New Thing"), "Brand");
+  assert.equal(eventShortLabel("newThing"), "Event");
 });

@@ -1,11 +1,11 @@
 /* ==========================================================================
    EarthPulse — app wiring: map, layers, place panel, lists.
    ========================================================================== */
-import { initTheme, esc } from "./theme.js";
+import { initTheme, currentTheme, esc } from "./theme.js";
 import { fetchQuakes, fetchEvents, searchPlaces, reverseGeocode, fetchWeather, fetchAir, fetchClimate } from "./api.js";
 import {
   yearlyAnomalies, trendPerDecade, last12MonthsAnomaly, stripeColor,
-  weatherLabel, aqiBand, depthColor, eventColor, BASELINE,
+  weatherLabel, aqiBand, depthColor, eventColor, eventShortLabel, BASELINE,
 } from "./climate.js";
 
 const $ = (id) => document.getElementById(id);
@@ -24,13 +24,21 @@ const map = L.map("map", { worldCopyJump: true, zoomControl: true }).setView([20
 // OpenStreetMap tiles; dark mode inverts them with a CSS filter (see app.css).
 const ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: ATTR, maxZoom: 18 }).addTo(map);
-initTheme($("themeToggle"));
+// Keep the browser's address-bar colour in step with the theme.
+const paintThemeColor = (t) => { document.querySelector('meta[name="theme-color"]').content = t === "light" ? "#eef6ff" : "#07080d"; };
+initTheme($("themeToggle"), paintThemeColor);
+paintThemeColor(currentTheme());
 
 const quakeLayer = L.layerGroup().addTo(map);
 const eventLayer = L.layerGroup().addTo(map);
 let pickMarker = null;
 const quakeMarkers = new Map();
 const eventMarkers = new Map();
+
+// Remember which quake/event popup is open so a background refresh can reopen it.
+let openPopup = null;
+map.on("popupopen", (e) => { openPopup = e.popup._source?.options.popupKey ?? null; });
+map.on("popupclose", () => { openPopup = null; });
 
 document.querySelectorAll("[data-layer]").forEach((chip) => {
   chip.addEventListener("click", () => {
@@ -66,19 +74,26 @@ tabs.forEach((t, i) => {
 
 /* ---------------------------------------------------------- earthquakes */
 let quakes = [];
-async function loadQuakes() {
+let quakeToken = 0;
+/** `quiet` is for background refreshes: keep the current list on screen until new data arrives. */
+async function loadQuakes({ quiet = false } = {}) {
+  const token = ++quakeToken;
   const list = $("quakeList");
-  list.innerHTML = '<li class="empty"><span class="spinner"></span> Loading earthquakes…</li>';
+  if (!quiet) list.innerHTML = '<li class="empty"><span class="spinner"></span> Loading earthquakes…</li>';
   try {
-    quakes = await fetchQuakes($("quakePeriod").value);
+    const data = await fetchQuakes($("quakePeriod").value);
+    if (token !== quakeToken) return; // a newer period was picked meanwhile
+    quakes = data;
     drawQuakes();
   } catch (err) {
+    if (token !== quakeToken || quiet) return;
     list.innerHTML = `<li class="note error">Couldn't load earthquakes: ${esc(err.message)}</li>`;
   }
 }
 function drawQuakes() {
   const min = Number($("minMag").value);
   const shown = quakes.filter((q) => q.mag >= min);
+  const reopen = openPopup;
   quakeLayer.clearLayers();
   quakeMarkers.clear();
   // Draw small quakes first so big ones sit on top.
@@ -86,6 +101,7 @@ function drawQuakes() {
     const m = L.circleMarker([q.lat, q.lon], {
       radius: Math.max(3, (q.mag - 1.5) * 2.6),
       color: "#0b0d14", weight: 1, fillColor: depthColor(q.depth), fillOpacity: .85,
+      popupKey: `q:${q.id}`,
     }).bindPopup(
       `<b>M ${q.mag.toFixed(1)}</b> — ${esc(q.place)}<br>` +
       `${fmtTime(q.time)} · depth ${q.depth.toFixed(0)} km` +
@@ -95,6 +111,7 @@ function drawQuakes() {
     m.addTo(quakeLayer);
     quakeMarkers.set(q.id, m);
   });
+  if (reopen?.startsWith("q:")) quakeMarkers.get(reopen.slice(2))?.openPopup();
   const list = $("quakeList");
   if (!shown.length) { list.innerHTML = '<li class="empty">No earthquakes at this magnitude in this period.</li>'; return; }
   list.innerHTML = shown.slice(0, 150).map((q) => `
@@ -109,27 +126,30 @@ $("quakeList").addEventListener("click", (e) => {
   const m = b && quakeMarkers.get(b.dataset.quake);
   if (m) { map.flyTo(m.getLatLng(), 6, { duration: .8 }); m.openPopup(); }
 });
-$("quakePeriod").addEventListener("change", loadQuakes);
+$("quakePeriod").addEventListener("change", () => loadQuakes());
 $("minMag").addEventListener("input", () => { $("minMagOut").value = $("minMag").value; drawQuakes(); });
 
 /* ------------------------------------------------------- natural events */
 let events = [];
 let eventCat = "all";
-async function loadEvents() {
-  $("eventList").innerHTML = '<li class="empty"><span class="spinner"></span> Loading events…</li>';
+async function loadEvents({ quiet = false } = {}) {
+  if (!quiet) $("eventList").innerHTML = '<li class="empty"><span class="spinner"></span> Loading events…</li>';
   try {
     events = await fetchEvents();
+    if (eventCat !== "all" && !events.some((e) => e.category === eventCat)) eventCat = "all";
     $("statEvents").textContent = events.length;
     const cats = [...new Map(events.map((e) => [e.category, e.categoryTitle]))];
     $("eventFilter").innerHTML = [["all", "All"], ...cats].map(([id, t]) =>
       `<button class="chip" type="button" data-cat="${esc(id)}" aria-pressed="${id === eventCat}">${esc(t)} ${id === "all" ? "" : `<span class="muted">${events.filter((e) => e.category === id).length}</span>`}</button>`).join("");
     drawEvents();
   } catch (err) {
+    if (quiet) return;
     $("statEvents").textContent = "—";
     $("eventList").innerHTML = `<li class="note error">Couldn't load NASA EONET events: ${esc(err.message)}</li>`;
   }
 }
 function drawEvents() {
+  const reopen = openPopup;
   eventLayer.clearLayers();
   eventMarkers.clear();
   const shown = events.filter((e) => eventCat === "all" || e.category === eventCat);
@@ -139,17 +159,18 @@ function drawEvents() {
       html: `<span style="display:block;width:11px;height:11px;transform:rotate(45deg);background:${eventColor(ev.category)};border:1.5px solid #0b0d14;border-radius:2px"></span>`,
       iconSize: [11, 11],
     });
-    const m = L.marker([ev.lat, ev.lon], { icon, title: ev.title }).bindPopup(
+    const m = L.marker([ev.lat, ev.lon], { icon, title: ev.title, popupKey: `e:${ev.id}` }).bindPopup(
       `<b>${esc(ev.title)}</b><br>${esc(ev.categoryTitle)} · last update ${fmtTime(ev.date)}` +
       (ev.source ? `<br><a href="${esc(ev.source)}" target="_blank" rel="noopener">Source ↗</a>` : ""),
     );
     m.addTo(eventLayer);
     eventMarkers.set(ev.id, m);
   });
+  if (reopen?.startsWith("e:")) eventMarkers.get(reopen.slice(2))?.openPopup();
   $("eventList").innerHTML = shown.length
     ? shown.slice(0, 150).map((ev) => `
       <li><button type="button" data-event="${esc(ev.id)}">
-        <span class="mag" style="box-shadow: inset 3px 0 ${eventColor(ev.category)}; font-size:.7rem">${esc(ev.categoryTitle.split(" ")[0])}</span>
+        <span class="mag" style="box-shadow: inset 3px 0 ${eventColor(ev.category)}; font-size:.7rem" title="${esc(ev.categoryTitle)}">${esc(eventShortLabel(ev.category, ev.categoryTitle))}</span>
         <span><span class="ttl">${esc(ev.title)}</span><span class="sub">${ago(ev.date)}</span></span>
       </button></li>`).join("")
     : '<li class="empty">No open events in this category.</li>';
@@ -331,11 +352,20 @@ $("searchInput").addEventListener("keydown", (e) => {
 });
 document.addEventListener("click", (e) => { if (!$("searchForm").contains(e.target)) closeResults(); });
 
-$("locateBtn").addEventListener("click", () => {
-  if (!navigator.geolocation) return;
+function showSearchMessage(html) {
+  results = [];
+  resBox.hidden = false;
+  resBox.innerHTML = `<li>${html}</li>`;
+}
+if (!navigator.geolocation) $("locateBtn").hidden = true;
+$("locateBtn").addEventListener("click", (e) => {
+  e.stopPropagation(); // keep the document click handler from closing the message straight away
+  showSearchMessage('<span class="spinner"></span> Finding your location…');
   navigator.geolocation.getCurrentPosition(
-    (p) => selectPlace(p.coords.latitude, p.coords.longitude, null, { fly: true }),
-    () => alert("Location permission was denied. Search a place or click the map instead."),
+    (p) => { closeResults(); selectPlace(p.coords.latitude, p.coords.longitude, null, { fly: true }); },
+    (err) => showSearchMessage(err.code === err.PERMISSION_DENIED
+      ? "Location permission was denied. Search a place or click the map instead."
+      : "Couldn't find your location. Search a place or click the map instead."),
     { timeout: 10000 },
   );
 });
@@ -353,7 +383,7 @@ $("shareBtn").addEventListener("click", async () => {
 loadStats();
 loadQuakes();
 loadEvents();
-setInterval(() => { loadStats(); loadQuakes(); loadEvents(); }, REFRESH_MS);
+setInterval(() => { loadStats(); loadQuakes({ quiet: true }); loadEvents({ quiet: true }); }, REFRESH_MS);
 
 const qs = new URLSearchParams(location.search);
 if (qs.has("lat") && qs.has("lon")) {

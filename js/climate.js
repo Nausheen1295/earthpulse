@@ -103,3 +103,13 @@ export function depthColor(km) {
 export function eventColor(category) {
   return { wildfires: "#f97316", severeStorms: "#38bdf8", volcanoes: "#e11d48" }[category] || "#a5b4fc";
 }
+
+/** One-word label for an EONET category, short enough for the list badge. */
+export function eventShortLabel(category, title = "") {
+  const short = {
+    wildfires: "Fire", severeStorms: "Storm", volcanoes: "Volcano", seaLakeIce: "Ice",
+    floods: "Flood", drought: "Drought", dustHaze: "Dust", earthquakes: "Quake",
+    landslides: "Slide", snow: "Snow", tempExtremes: "Temp", waterColor: "Water", manmade: "Human",
+  };
+  return short[category] || title.split(" ")[0] || "Event";
+}

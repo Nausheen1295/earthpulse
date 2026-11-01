@@ -2,18 +2,22 @@
 
 **Climate & geospatial intelligence on one live map.**
 
+[![Tests](https://github.com/Nausheen1295/earthpulse/actions/workflows/test.yml/badge.svg)](https://github.com/Nausheen1295/earthpulse/actions/workflows/test.yml)
+
 🌍 **Live site:** https://nausheen1295.github.io/earthpulse/
 
 EarthPulse brings real-time earth data together in one place. See earthquakes and natural events as they happen, then click any point on the planet to get its weather, air quality and long-term climate trend.
 
 Part of the Earth Lab in my portfolio, [NEXUS](https://nausheen1295.github.io/portfolio/).
 
+![EarthPulse showing Chennai: weather, 7-day forecast, air quality and warming stripes next to the live map](docs/screenshot.png)
+
 ## Features
 
 - **Live earthquakes:** USGS feeds for the past day, week or month.
   - Marker size shows magnitude and colour shows depth.
   - Tsunami flags are shown, and every quake links to its USGS event page.
-- **Natural events:** open NASA EONET events (wildfires, severe storms, volcanoes, sea ice and more), filterable by type.
+- **Natural events:** open NASA EONET events (wildfires, severe storms, volcanoes, sea ice and more), filterable by type. Events mapped as an area are pinned at the centre of that area.
 - **Any place on Earth:** click the map, search a city or use your location to see:
   - current weather and a 7-day forecast
   - air quality (US AQI, PM2.5, PM10, O₃, NO₂)
@@ -22,7 +26,7 @@ Part of the Earth Lab in my portfolio, [NEXUS](https://nausheen1295.github.io/po
   - Warming stripes and a yearly anomaly chart against the 1991–2020 average, built from ERA5 reanalysis.
   - Also shows the trend in °C per decade, how the past 12 months compare, and the warmest year on record for that point.
 - **Shareable links:** the selected place is kept in the URL (`?lat=…&lon=…&name=…`).
-- **Auto-refresh:** feeds refresh every 5 minutes.
+- **Auto-refresh:** feeds refresh quietly every 5 minutes, without closing an open popup.
 - **Themes and devices:** dark and light themes, keyboard-friendly tabs and search, and a layout that works on phones.
 
 ## How it works
