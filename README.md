@@ -58,7 +58,7 @@ HTML, CSS and JavaScript (ES modules), [Leaflet](https://leafletjs.com/) and han
 git clone https://github.com/Nausheen1295/earthpulse.git
 cd earthpulse
 npx serve .          # or: python -m http.server
-npm test             # unit tests for the climate maths (Node 20+)
+npm test             # unit tests for the climate maths (Node 22+)
 ```
 
 ## Data sources
